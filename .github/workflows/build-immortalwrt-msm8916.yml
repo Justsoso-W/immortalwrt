@@ -149,7 +149,6 @@ jobs:
                 'CONFIG_PACKAGE_naiveproxy=y' \
                 'CONFIG_PACKAGE_shadowsocks-rust-sslocal=y' \
                 'CONFIG_PACKAGE_shadowsocks-rust-ssserver=y' \
-                'CONFIG_PACKAGE_v2ray-plugin=y' \
                 'CONFIG_PACKAGE_tuic-client=y' \
                 'CONFIG_PACKAGE_microsocks=y' \
                 'CONFIG_PACKAGE_ipt2socks=y' \
@@ -158,7 +157,6 @@ jobs:
                 'CONFIG_PACKAGE_v2ray-geoip=y' \
                 'CONFIG_PACKAGE_v2ray-geosite=y' \
                 'CONFIG_PACKAGE_mosdns=y' \
-                'CONFIG_PACKAGE_geoview=y' \
                 'CONFIG_PACKAGE_tailscale=y' \
                 'CONFIG_PACKAGE_zerotier=y' \
                 'CONFIG_PACKAGE_wireguard-tools=y' \
@@ -291,8 +289,8 @@ jobs:
         working-directory: ./immortalwrt
         run: |
             make defconfig
-            echo "=== Build config summary (key packages) ==="
-            grep -E '^(CONFIG_TARGET|CONFIG_PACKAGE_luci-app-oaf|CONFIG_PACKAGE_luci-app-passwall|CONFIG_PACKAGE_luci-app-tailscale|CONFIG_PACKAGE_luci-app-ddnstox|CONFIG_PACKAGE_luci-app-openclash|CONFIG_PACKAGE_tailscale|CONFIG_PACKAGE_docker)' .config | sort
+            echo "=== Build config summary ==="
+            grep -E '^(CONFIG_TARGET|CONFIG_PACKAGE_luci-app-oaf|CONFIG_PACKAGE_luci-app-passwall|CONFIG_PACKAGE_luci-app-tailscale|CONFIG_PACKAGE_luci-app-ddnstox)' .config | sort
 
       - name: Download source (prepare)
         working-directory: ./immortalwrt
