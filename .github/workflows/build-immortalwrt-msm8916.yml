@@ -296,13 +296,32 @@ jobs:
 
       - name: Download source (prepare)
         working-directory: ./immortalwrt
+        continue-on-error: true
         run: |
-            make download -j$(nproc) 2>&1 | tail -20
+            make download -j$(nproc) 2>&1 | tee download.log | tail -40
+            echo "=== Check for download failures ==="
+            grep -E 'ERROR:|Failed to download' download.log || echo "No download errors found"
+
+      - name: Retry failed downloads individually
+        working-directory: ./immortalwrt
+        run: |
+            # Try to rebuild download stamps for openstick packages
+            for pkg in gc libusbgx qrtr qcom-firmware; do
+                echo "=== Retrying download: $pkg ==="
+                make "package/feeds/openstick/$pkg/download" V=s 2>&1 | tail -5 || true
+                # If the package source is still missing, try manual clone
+                pkg_dir="$(find feeds/openstick/ -name "$pkg" -type d 2>/dev/null | head -1)"
+                if [ -n "$pkg_dir" ]; then
+                    echo "Package dir: $pkg_dir"
+                    grep -E 'PKG_SOURCE_URL|PKG_SOURCE|PKG_VERSION|PKG_SOURCE_PROTO' "$pkg_dir/Makefile" | head -5
+                fi
+                echo ""
+            done
 
       - name: Remove broken downloads
         working-directory: ./immortalwrt
         run: |
-            find dl -size -1024c -exec ls -l {} \; -exec rm -f {} \; 2>/dev/null
+            find dl -size -1024c -exec rm -f {} \; 2>/dev/null || true
             echo "=== DL directory ==="
             du -sh dl/
 
