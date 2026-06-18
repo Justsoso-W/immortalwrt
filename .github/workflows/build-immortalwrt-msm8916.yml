@@ -284,6 +284,9 @@ jobs:
                 'CONFIG_CCACHE=y' \
                 'CONFIG_AUTOREMOVE=y' \
                 > .config
+            # Explicitly disable packages that break the build
+            sed -i '/CONFIG_PACKAGE_geoview=y/d' .config
+            echo 'CONFIG_PACKAGE_geoview=n' >> .config
 
       - name: Run defconfig
         working-directory: ./immortalwrt
