@@ -1,0 +1,202 @@
+name: Build ImmortalWrt for MSM8916 (JZ02_V10 + OpenAppFilter)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_connect:
+        description: 'Enable SSH connection during build (debug)'
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches: [ master ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ImmortalWrt MSM8916 with OAF
+    runs-on: ubuntu-24.04
+
+    env:
+        REPO_URL: https://github.com/lkiuyu/immortalwrt
+        REPO_BRANCH: master
+        DEVICE_TARGET: msm89xx
+        DEVICE_SUBTARGET: msm8916
+        DEVICE_NAME: openstick-jz02v10
+        FIRMWARE_DIR: bin/targets/msm89xx/msm8916
+
+    steps:
+      - name: Check environment
+        run: |
+            df -h
+            nproc
+
+      - name: Clean up runner disk space
+        run: |
+            sudo rm -rf /usr/share/dotnet /opt/hostedtoolcache /usr/local/lib/android
+            sudo docker system prune -af 2>/dev/null || true
+            df -h /
+
+      - name: Install build dependencies
+        run: |
+            sudo apt-get update -y
+            sudo apt-get install -y --no-install-recommends \
+                build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+                gettext git libncurses5-dev libssl-dev python3-setuptools \
+                rsync swig unzip zlib1g-dev file wget curl \
+                qemu-utils python3 python3-pip \
+                u-boot-tools device-tree-compiler
+            sudo apt-get clean
+
+      - name: Checkout ImmortalWrt (lkiuyu fork with msm89xx)
+        uses: actions/checkout@v4
+        with:
+            repository: lkiuyu/immortalwrt
+            ref: master
+            path: immortalwrt
+            fetch-depth: 1
+
+      - name: Clone OpenAppFilter into package/
+        working-directory: ./immortalwrt
+        run: |
+            git clone --depth=1 https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
+
+      - name: Update feeds
+        working-directory: ./immortalwrt
+        run: |
+            ./scripts/feeds update -a
+            ./scripts/feeds install -a
+
+      - name: Restore DL cache
+        uses: actions/cache@v4
+        with:
+            path: immortalwrt/dl
+            key: dl-cache-msm8916-${{ hashFiles('immortalwrt/dl/*', 'immortalwrt/Makefile') }}
+            restore-keys: |
+                dl-cache-msm8916-
+
+      - name: Build configuration
+        working-directory: ./immortalwrt
+        run: |
+            cat > .config << 'EOF'
+            # Target: Qualcomm MSM8916 (JZ02_V10)
+            CONFIG_TARGET_msm89xx=y
+            CONFIG_TARGET_msm89xx_msm8916=y
+            CONFIG_TARGET_msm89xx_msm8916_DEVICE_openstick-jz02v10=y
+
+            # ========== OpenAppFilter ==========
+            CONFIG_PACKAGE_luci-app-oaf=y
+
+            # ========== Base system ==========
+            CONFIG_PACKAGE_luci=y
+            CONFIG_PACKAGE_luci-ssl=y
+            CONFIG_PACKAGE_luci-mod-admin-full=y
+
+            # ========== Network ==========
+            CONFIG_PACKAGE_dnsmasq-full=y
+            CONFIG_PACKAGE_iptables-nft=y
+            CONFIG_PACKAGE_firewall4=y
+            CONFIG_PACKAGE_nftables=y
+
+            # ========== Utilities ==========
+            CONFIG_PACKAGE_curl=y
+            CONFIG_PACKAGE_wget-ssl=y
+            CONFIG_PACKAGE_tcpdump=y
+            CONFIG_PACKAGE_tcpdump-mini=y
+            CONFIG_PACKAGE_htop=y
+
+            # ========== USB/Storage ==========
+            CONFIG_PACKAGE_kmod-usb-storage=y
+            CONFIG_PACKAGE_kmod-usb-storage-uas=y
+            CONFIG_PACKAGE_kmod-usb3=y
+            CONFIG_PACKAGE_kmod-usb-serial=y
+            CONFIG_PACKAGE_kmod-usb-serial-option=y
+            CONFIG_PACKAGE_kmod-usb-serial-wwan=y
+            CONFIG_PACKAGE_kmod-usb-net=y
+            CONFIG_PACKAGE_kmod-usb-net-rndis=y
+            CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+
+            # ========== Modem/4G ==========
+            CONFIG_PACKAGE_kmod-wwan=y
+            CONFIG_PACKAGE_kmod-qmi-wwan=y
+            CONFIG_PACKAGE_kmod-mhi=y
+            CONFIG_PACKAGE_kmod-mhi-net=y
+            CONFIG_PACKAGE_kmod-mhi-wwan-ctrl=y
+            CONFIG_PACKAGE_kmod-mhi-mbim=y
+
+            # ========== Core build options ==========
+            CONFIG_DEVEL=y
+            CONFIG_CCACHE=y
+            CONFIG_AUTOREMOVE=y
+
+            # ========== Languages (optional) ==========
+            CONFIG_PACKAGE_perl=y
+            CONFIG_PACKAGE_python3=y
+            CONFIG_PACKAGE_python3-pip=y
+            EOF
+
+      - name: Run defconfig
+        working-directory: ./immortalwrt
+        run: |
+            make defconfig
+            echo "=== Build config summary ==="
+            grep -E '^(CONFIG_TARGET|CONFIG_PACKAGE_luci-app-oaf|CONFIG_PACKAGE_oaf|CONFIG_PACKAGE_open-app-filter)' .config | sort
+
+      - name: Download source (prepare)
+        working-directory: ./immortalwrt
+        run: |
+            make download -j$(nproc) 2>&1 | tail -20
+
+      - name: Remove broken downloads
+        working-directory: ./immortalwrt
+        run: |
+            find dl -size -1024c -exec ls -l {} \; -exec rm -f {} \; 2>/dev/null
+            echo "=== DL directory ==="
+            du -sh dl/
+
+      - name: Build firmware
+        working-directory: ./immortalwrt
+        continue-on-error: true
+        run: |
+            make -j$(nproc) 2>&1 | tee build.log | tail -100
+
+      - name: Retry build (single thread) if needed
+        if: failure()
+        working-directory: ./immortalwrt
+        run: |
+            make -j1 V=s 2>&1 | tee build-single.log | tail -100
+
+      - name: Verify firmware output
+        working-directory: ./immortalwrt
+        run: |
+            echo "=== Firmware files ==="
+            find ${{ env.FIRMWARE_DIR }} -type f -name "*.img" -o -name "*.gz" -o -name "*.bin" | sort
+            echo "=== File sizes ==="
+            find ${{ env.FIRMWARE_DIR }} -type f $ -name "*.img" -o -name "*.gz" -o -name "*.bin" $ -exec ls -lh {} \;
+            echo "=== Build log extract ==="
+            if [ -f build.log ]; then
+              grep -E '(ERROR|Fail|error:|Error|make.*Error)' build.log | head -20 || echo "No errors found"
+            fi
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+            name: immortalwrt-msm8916-oaf-jz02v10
+            path: |
+                immortalwrt/${{ env.FIRMWARE_DIR }}/*.img
+                immortalwrt/${{ env.FIRMWARE_DIR }}/*.gz
+                immortalwrt/${{ env.FIRMWARE_DIR }}/sha256sums
+                immortalwrt/build.log*
+                !immortalwrt/${{ env.FIRMWARE_DIR }}/packages
+            retention-days: 30
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+            name: build-log
+            path: immortalwrt/build*.log
+            retention-days: 14
