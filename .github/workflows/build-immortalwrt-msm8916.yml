@@ -112,7 +112,6 @@ jobs:
                 'CONFIG_PACKAGE_luci-app-advanced-reboot=y' \
                 'CONFIG_PACKAGE_luci-app-partexp=y' \
                 'CONFIG_PACKAGE_luci-app-diskman=y' \
-                'CONFIG_PACKAGE_luci-app-filebrowser-go=y' \
                 'CONFIG_PACKAGE_luci-app-samba4=y' \
                 'CONFIG_PACKAGE_luci-app-vsftpd=y' \
                 'CONFIG_PACKAGE_luci-app-transmission=y' \
@@ -139,6 +138,7 @@ jobs:
                 'CONFIG_PACKAGE_luci-app-lucky=y' \
                 'CONFIG_PACKAGE_luci-app-taskplan=y' \
                 'CONFIG_PACKAGE_luci-app-advanced=y' \
+                'CONFIG_PACKAGE_luci-app-dockerman=y' \
                 'CONFIG_PACKAGE_dnsmasq-full=y' \
                 'CONFIG_PACKAGE_firewall4=y' \
                 'CONFIG_PACKAGE_nftables=y' \
@@ -273,6 +273,11 @@ jobs:
                 'CONFIG_PACKAGE_block-mount=y' \
                 'CONFIG_PACKAGE_f2fs-tools=y' \
                 'CONFIG_PACKAGE_resize2fs=y' \
+                'CONFIG_PACKAGE_docker=y' \
+                'CONFIG_PACKAGE_dockerd=y' \
+                'CONFIG_PACKAGE_docker-compose=y' \
+                'CONFIG_PACKAGE_containerd=y' \
+                'CONFIG_PACKAGE_runc=y' \
                 'CONFIG_PACKAGE_perl=y' \
                 'CONFIG_PACKAGE_python3=y' \
                 'CONFIG_PACKAGE_python3-pip=y' \
