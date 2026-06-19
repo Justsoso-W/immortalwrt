@@ -284,16 +284,18 @@ jobs:
                 'CONFIG_CCACHE=y' \
                 'CONFIG_AUTOREMOVE=y' \
                 > .config
-            # Explicitly disable packages that break the build
-            sed -i '/CONFIG_PACKAGE_geoview=y/d' .config
-            echo 'CONFIG_PACKAGE_geoview=n' >> .config
 
       - name: Run defconfig
         working-directory: ./immortalwrt
         run: |
             make defconfig
+            # Force-disable packages that fail to build (Go compilation issues)
+            # geoview gets re-pulled by geoip deps; remove after defconfig
+            sed -i '/CONFIG_PACKAGE_geoview=y/d' .config
+            sed -i '/CONFIG_PACKAGE_geoview=m/d' .config
+            echo 'CONFIG_PACKAGE_geoview=n' >> .config
             echo "=== Build config summary ==="
-            grep -E '^(CONFIG_TARGET|CONFIG_PACKAGE_luci-app-oaf|CONFIG_PACKAGE_luci-app-passwall|CONFIG_PACKAGE_luci-app-tailscale|CONFIG_PACKAGE_luci-app-ddnstox)' .config | sort
+            grep -E '^(CONFIG_TARGET|CONFIG_PACKAGE_geoview|CONFIG_PACKAGE_luci-app-oaf)' .config | sort
 
       - name: Download source (prepare)
         working-directory: ./immortalwrt
