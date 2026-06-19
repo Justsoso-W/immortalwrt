@@ -21,8 +21,12 @@ jobs:
     runs-on: ubuntu-24.04
 
     env:
-        REPO_URL: https://github.com/lkiuyu/immortalwrt
-        REPO_BRANCH: master
+        # Use our own fork so we control the source — the upstream lkiuyu/immortalwrt
+        # receives random commits that can break this build at any time.
+        # Pinned to a specific commit SHA for reproducibility.
+        REPO_URL: https://github.com/Justsoso-W/immortalwrt
+        REPO_BRANCH: fix/build-stability
+        REPO_COMMIT: a392d5d84114168db58ae610f59bcb08827d5a17
         DEVICE_TARGET: msm89xx
         DEVICE_SUBTARGET: msm8916
         DEVICE_NAME: openstick-jz02v10
@@ -51,11 +55,11 @@ jobs:
                 u-boot-tools device-tree-compiler
             sudo apt-get clean
 
-      - name: Checkout ImmortalWrt (lkiuyu fork with msm89xx)
+      - name: Checkout ImmortalWrt (Justsoso-W fork, branch ref)
         uses: actions/checkout@v4
         with:
-            repository: lkiuyu/immortalwrt
-            ref: master
+            repository: Justsoso-W/immortalwrt
+            ref: ${{ env.REPO_BRANCH }}
             path: immortalwrt
             fetch-depth: 1
 
@@ -328,28 +332,43 @@ jobs:
             echo "=== DL directory ==="
             du -sh dl/
 
-      - name: Build firmware
-        working-directory: ./immortalwrt
-        continue-on-error: true
-        run: |
-            make -j$(nproc) 2>&1 | tee build.log | tail -100
-
-      - name: Retry build (single thread) if needed
-        if: failure()
+      - name: Build firmware (parallel, with single-thread fallback)
         working-directory: ./immortalwrt
         run: |
-            make -j1 V=s 2>&1 | tee build-single.log | tail -100
+            # Fail fast — do NOT use continue-on-error. Previous workflows swallowed
+            # real build failures and uploaded empty artifacts.
+            make -j$(nproc) 2>&1 | tee build.log | tail -200
+            rc=${PIPESTATUS[0]}
+            echo "=== Parallel build exit code: $rc ==="
+            if [ $rc -ne 0 ]; then
+                echo "=== Parallel build failed, retrying single-threaded for diagnostics ==="
+                make -j1 V=s 2>&1 | tee build-single.log | tail -200
+                echo "=== Single-thread build exit code: ${PIPESTATUS[0]} ==="
+                # Hard-fail the step so subsequent upload steps are skipped.
+                exit 1
+            fi
 
       - name: Verify firmware output
         working-directory: ./immortalwrt
         run: |
             echo "=== Firmware files ==="
-            find ${{ env.FIRMWARE_DIR }} -type f -name "*.img" -o -name "*.gz" -o -name "*.bin" | sort
+            mapfile -t FW_FILES < <(find ${{ env.FIRMWARE_DIR }} -type f \( -name "*.img" -o -name "*.gz" -o -name "*.bin" \) 2>/dev/null | sort)
+            if [ ${#FW_FILES[@]} -eq 0 ]; then
+                echo "::error::No firmware images found in ${{ env.FIRMWARE_DIR }} — build did not produce output"
+                echo "=== Build log error excerpt ==="
+                if [ -f build.log ]; then
+                    grep -E '(ERROR|Fail|error:|Error|make.*Error)' build.log | head -30 || echo "(no error lines found in build.log)"
+                else
+                    echo "(no build.log present)"
+                fi
+                exit 1
+            fi
+            printf '%s\n' "${FW_FILES[@]}"
             echo "=== File sizes ==="
             find ${{ env.FIRMWARE_DIR }} -type f \( -name "*.img" -o -name "*.gz" -o -name "*.bin" \) -exec ls -lh {} \;
-            echo "=== Build log extract ==="
+            echo "=== Build log error excerpt ==="
             if [ -f build.log ]; then
-              grep -E '(ERROR|Fail|error:|Error|make.*Error)' build.log | head -20 || echo "No errors found"
+                grep -E '(ERROR|Fail|error:|Error|make.*Error)' build.log | head -20 || echo "No errors found"
             fi
 
       - name: Upload firmware artifacts
@@ -363,6 +382,7 @@ jobs:
                 immortalwrt/build.log*
                 !immortalwrt/${{ env.FIRMWARE_DIR }}/packages
             retention-days: 30
+            if-no-files-found: error
 
       - name: Upload build log on failure
         if: failure()
