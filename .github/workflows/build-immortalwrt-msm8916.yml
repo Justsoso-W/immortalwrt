@@ -68,34 +68,11 @@ jobs:
         run: |
             git clone --depth=1 https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
 
-      - name: Pin feeds to ImmortalWrt 24.10 stable branch
-        working-directory: ./immortalwrt
-        run: |
-            # lkiuyu/immortalwrt master uses packages master, which is now on Go 1.26.
-            # Go 1.26 toolchain rejects many third-party Go packages due to stricter
-            # internal/* subpackage rules. Pin feeds to the openwrt-24.10 branch which
-            # uses Go 1.21-1.22 and has compatible package versions.
-            sed -i 's|^src-git packages https://github.com/immortalwrt/packages.git$|src-git packages https://github.com/immortalwrt/packages.git;branch=openwrt-24.10|' feeds.conf.default
-            sed -i 's|^src-git luci https://github.com/immortalwrt/luci.git$|src-git luci https://github.com/immortalwrt/luci.git;branch=openwrt-24.10|' feeds.conf.default
-            echo "=== feeds.conf.default after pinning ==="
-            cat feeds.conf.default
-
       - name: Update feeds
         working-directory: ./immortalwrt
         run: |
-            echo "=== feeds.conf.default BEFORE update ==="
-            cat feeds.conf.default
-            echo ""
-            echo "=== Running feeds update ==="
-            ./scripts/feeds update -a 2>&1 | tee feeds-update.log | tail -50
-            rc=${PIPESTATUS[0]}
-            echo "=== feeds update exit code: $rc ==="
-            if [ $rc -ne 0 ]; then
-                echo "=== Full feeds-update.log (last 100 lines) ==="
-                tail -100 feeds-update.log
-                exit 1
-            fi
-            ./scripts/feeds install -a 2>&1 | tee feeds-install.log | tail -50
+            ./scripts/feeds update -a
+            ./scripts/feeds install -a
 
       - name: Restore DL cache
         uses: actions/cache@v4
@@ -151,7 +128,6 @@ jobs:
                 'CONFIG_PACKAGE_luci-app-zerotier=y' \
                 'CONFIG_PACKAGE_luci-app-easytier=y' \
                 'CONFIG_PACKAGE_luci-app-ddnstox=y' \
-                'CONFIG_PACKAGE_luci-app-frpc=y' \
                 'CONFIG_PACKAGE_luci-app-mosdns=y' \
                 'CONFIG_PACKAGE_luci-app-adblock-fast=y' \
                 'CONFIG_PACKAGE_luci-app-modeminfo=y' \
@@ -186,7 +162,6 @@ jobs:
                 'CONFIG_PACKAGE_zerotier=y' \
                 'CONFIG_PACKAGE_wireguard-tools=y' \
                 'CONFIG_PACKAGE_lucky=y' \
-                'CONFIG_PACKAGE_frpc=y' \
                 'CONFIG_PACKAGE_ddnstox=y' \
                 'CONFIG_PACKAGE_curl=y' \
                 'CONFIG_PACKAGE_uclient-fetch=y' \
