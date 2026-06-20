@@ -83,8 +83,19 @@ jobs:
       - name: Update feeds
         working-directory: ./immortalwrt
         run: |
-            ./scripts/feeds update -a
-            ./scripts/feeds install -a
+            echo "=== feeds.conf.default BEFORE update ==="
+            cat feeds.conf.default
+            echo ""
+            echo "=== Running feeds update ==="
+            ./scripts/feeds update -a 2>&1 | tee feeds-update.log | tail -50
+            rc=${PIPESTATUS[0]}
+            echo "=== feeds update exit code: $rc ==="
+            if [ $rc -ne 0 ]; then
+                echo "=== Full feeds-update.log (last 100 lines) ==="
+                tail -100 feeds-update.log
+                exit 1
+            fi
+            ./scripts/feeds install -a 2>&1 | tee feeds-install.log | tail -50
 
       - name: Restore DL cache
         uses: actions/cache@v4
