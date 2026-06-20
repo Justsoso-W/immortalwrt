@@ -77,81 +77,17 @@ jobs:
       - name: Patch Go toolchain to 1.24.13
         working-directory: ./immortalwrt
         run: |
-            # immortalwrt/packages master ships Go 1.26.4 as the only available version
-            # (lang/golang/golang1.26/). Go 1.26.4 is too strict about internal/* subpackage
-            # visibility for many third-party Go packages (sing-box 1.12, frp, filebrowser,
-            # docker-compose, geoview, etc.). Downgrade to Go 1.24.13 by:
-            #   1) writing lang/golang/golang1.24/Makefile (clone of golang1.26 with 1.24.13 values)
-            #   2) changing golang-values.mk GO_DEFAULT_VERSION from 1.26 to 1.24
             set -e
-            GO_HASH=639a6204c2486b137df1eb6e78ee3ed038f9877d0e4b5a465e796a2153f858d7
             mkdir -p feeds/packages/lang/golang/golang1.24
-            cat > feeds/packages/lang/golang/golang1.24/Makefile <<EOF
-#
-# Copyright (C) 2018-2023 Jeffery To
-# Copyright (C) 2025-2026 George Sapkin
-#
-# SPDX-License-Identifier: GPL-2.0-only
-
-include \$(TOPDIR)/rules.mk
-
-PKG_NAME:=golang1.24
-GO_VERSION_MAJOR_MINOR:=1.24
-GO_VERSION_PATCH:=13
-GO_VERSION_RC:=
-GO_BOOTSTRAP_VERSION:=bootstrap
-PKG_HASH:=${GO_HASH}
-
-PKG_VERSION:=\$(GO_VERSION_MAJOR_MINOR)\$(if \$(GO_VERSION_RC),.0)\$(if \$(GO_VERSION_PATCH),.\$(GO_VERSION_PATCH))
-PKG_FILE_VERSION:=\$(GO_VERSION_MAJOR_MINOR)\$(if \$(GO_VERSION_RC),rc\$(GO_VERSION_RC))\$(if \$(GO_VERSION_PATCH),.\$(GO_VERSION_PATCH))
-PKG_RELEASE:=1
-
-GO_SOURCE_URLS:=https://go.dev/dl/ \\
-                https://golang.google.cn/dl/ \\
-                https://mirrors.nju.edu.cn/golang/ \\
-                https://mirrors.ustc.edu.cn/golang/
-
-PKG_SOURCE:=go\$(PKG_FILE_VERSION).src.tar.gz
-PKG_SOURCE_URL:=\$(GO_SOURCE_URLS)
-
-PKG_MAINTAINER:=George Sapkin <george@sapk.in>
-PKG_LICENSE:=BSD-3-Clause
-PKG_LICENSE_FILES:=LICENSE
-PKG_CPE_ID:=cpe:/a:golang:go
-
-PKG_BUILD_DEPENDS:=\$(PKG_NAME)/host
-PKG_BUILD_DIR:=\$(BUILD_DIR)/go-\$(PKG_VERSION)
-PKG_BUILD_PARALLEL:=1
-PKG_BUILD_FLAGS:=no-mips16
-
-PKG_GO_PREFIX:=/usr
-PKG_GO_VERSION_ID:=\$(GO_VERSION_MAJOR_MINOR)
-
-HOST_BUILD_DEPENDS:=golang\$(if \$(filter bootstrap,\$(GO_BOOTSTRAP_VERSION)),-)\$(GO_BOOTSTRAP_VERSION)/host
-HOST_BUILD_DIR:=\$(BUILD_DIR_HOST)/go-\$(PKG_VERSION)
-HOST_BUILD_PARALLEL:=1
-
-include \$(INCLUDE_DIR)/host-build.mk
-include \$(INCLUDE_DIR)/package.mk
-include ../golang-version.mk
-
-\$(eval \$(call HostBuild))
-\$(eval \$(call BuildPackage,\$(PKG_NAME)))
-\$(eval \$(call BuildPackage,\$(PKG_NAME)-doc))
-\$(eval \$(call BuildPackage,\$(PKG_NAME)-misc))
-\$(eval \$(call BuildPackage,\$(PKG_NAME)-src))
-\$(eval \$(call BuildPackage,\$(PKG_NAME)-tests))
-EOF
+            echo "IwojIENvcHlyaWdodCAoQykgMjAxOC0yMDIzIEplZmZlcnkgVG8KIyBDb3B5cmlnaHQgKEMpIDIwMjUtMjAyNiBHZW9yZ2UgU2Fwa2luCiMKIyBTUERYLUxpY2Vuc2UtSWRlbnRpZmllcjogR1BMLTIuMC1vbmx5CgppbmNsdWRlICQoVE9QRElSKS9ydWxlcy5tawoKUEtHX05BTUU6PWdvbGFuZzEuMjQKR09fVkVSU0lPTl9NQUpPUl9NSU5PUjo9MS4yNApHT19WRVJTSU9OX1BBVENIOj0xMwpHT19WRVJTSU9OX1JDOj0KR09fQk9PVFNUUkFQX1ZFUlNJT046PWJvb3RzdHJhcApQS0dfSEFTSDo9NjM5YTYyMDRjMjQ4NmIxMzdkZjFlYjZlNzhlZTNlZDAzOGY5ODc3ZDBlNGI1YTQ2NWU3OTZhMjE1M2Y4NThkNwoKUEtHX1ZFUlNJT046PSQoR09fVkVSU0lPTl9NQUpPUl9NSU5PUikkKGlmICQoR09fVkVSU0lPTl9SQyksLjApJChpZiAkKEdPX1ZFUlNJT05fUEFUQ0gpLC4kKEdPX1ZFUlNJT05fUEFUQ0gpKQpQS0dfRklMRV9WRVJTSU9OOj0kKEdPX1ZFUlNJT05fTUFKT1JfTUlOT1IpJChpZiAkKEdPX1ZFUlNJT05fUkMpLHJjJChHT19WRVJTSU9OX1JDKSkkKGlmICQoR09fVkVSU0lPTl9QQVRDSCksLiQoR09fVkVSU0lPTl9QQVRDSCkpClBLR19SRUxFQVNFOj0xCgpHT19TT1VSQ0VfVVJMUzo9aHR0cHM6Ly9nby5kZXYvZGwvIFwKICAgICAgICAgICAgICAgIGh0dHBzOi8vZ29sYW5nLmdvb2dsZS5jbi9kbC8gXAogICAgICAgICAgICAgICAgaHR0cHM6Ly9taXJyb3JzLm5qdS5lZHUuY24vZ29sYW5nLyBcCiAgICAgICAgICAgICAgICBodHRwczovL21pcnJvcnMudXN0Yy5lZHUuY24vZ29sYW5nLwoKUEtHX1NPVVJDRTo9Z28kKFBLR19GSUxFX1ZFUlNJT04pLnNyYy50YXIuZ3oKUEtHX1NPVVJDRV9VUkw6PSQoR09fU09VUkNFX1VSTFMpCgpQS0dfTUFJTlRBSU5FUjo9R2VvcmdlIFNhcGtpbiA8Z2VvcmdlQHNhcGsuaW4+ClBLR19MSUNFTlNFOj1CU0QtMy1DbGF1c2UKUEtHX0xJQ0VOU0VfRklMRVM6PUxJQ0VOU0UKUEtHX0NQRV9JRDo9Y3BlOi9hOmdvbGFuZzpnbwoKUEtHX0JVSUxEX0RFUEVORFM6PSQoUEtHX05BTUUpL2hvc3QKUEtHX0JVSUxEX0RJUjo9JChCVUlMRF9ESVIpL2dvLSQoUEtHX1ZFUlNJT04pClBLR19CVUlMRF9QQVJBTExFTDo9MQpQS0dfQlVJTERfRkxBR1M6PW5vLW1pcHMxNgoKUEtHX0dPX1BSRUZJWDo9L3VzcgpQS0dfR09fVkVSU0lPTl9JRDo9JChHT19WRVJTSU9OX01BSk9SX01JTk9SKQoKSE9TVF9CVUlMRF9ERVBFTkRTOj1nb2xhbmckKGlmICQoZmlsdGVyIGJvb3RzdHJhcCwkKEdPX0JPT1RTVFJBUF9WRVJTSU9OKSksLSkkKEdPX0JPT1RTVFJBUF9WRVJTSU9OKS9ob3N0CkhPU1RfQlVJTERfRElSOj0kKEJVSUxEX0RJUl9IT1NUKS9nby0kKFBLR19WRVJTSU9OKQpIT1NUX0JVSUxEX1BBUkFMTEVMOj0xCgppbmNsdWRlICQoSU5DTFVERV9ESVIpL2hvc3QtYnVpbGQubWsKaW5jbHVkZSAkKElOQ0xVREVfRElSKS9wYWNrYWdlLm1rCmluY2x1ZGUgLi4vZ29sYW5nLXZlcnNpb24ubWsKCiQoZXZhbCAkKGNhbGwgSG9zdEJ1aWxkKSkKJChldmFsICQoY2FsbCBCdWlsZFBhY2thZ2UsJChQS0dfTkFNRSkpKQokKGV2YWwgJChjYWxsIEJ1aWxkUGFja2FnZSwkKFBLR19OQU1FKS1kb2MpKQokKGV2YWwgJChjYWxsIEJ1aWxkUGFja2FnZSwkKFBLR19OQU1FKS1taXNjKSkKJChldmFsICQoY2FsbCBCdWlsZFBhY2thZ2UsJChQS0dfTkFNRSktc3JjKSkKJChldmFsICQoY2FsbCBCdWlsZFBhY2thZ2UsJChQS0dfTkFNRSktdGVzdHMpKQo=" | base64 -d > feeds/packages/lang/golang/golang1.24/Makefile
+            chmod 644 feeds/packages/lang/golang/golang1.24/Makefile
             sed -i 's/^GO_DEFAULT_VERSION:=1.26/GO_DEFAULT_VERSION:=1.24/' feeds/packages/lang/golang/golang-values.mk
-            sed -i 's/^GO_DEFAULT_VERSION:=1.26/GO_DEFAULT_VERSION:=1.24/' feeds/packages/lang/golang/golang-values.mk 2>/dev/null || true
-            echo "=== Verify new golang1.24 Makefile ==="
+            echo "=== Verify new golang1.24 Makefile (first 20 lines) ==="
             head -20 feeds/packages/lang/golang/golang1.24/Makefile
             echo ""
             echo "=== Verify golang-values.mk ==="
             grep "GO_DEFAULT_VERSION" feeds/packages/lang/golang/golang-values.mk
-            # Wipe any previous build state for Go 1.26
             rm -rf build_dir/hostpkg/go-1.26* build_dir/target-*/go-1.26* tmp/go-build 2>/dev/null || true
-
       - name: Restore DL cache
         uses: actions/cache@v4
         with:
