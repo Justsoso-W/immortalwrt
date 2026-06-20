@@ -68,6 +68,18 @@ jobs:
         run: |
             git clone --depth=1 https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
 
+      - name: Pin feeds to ImmortalWrt 24.10 stable branch
+        working-directory: ./immortalwrt
+        run: |
+            # lkiuyu/immortalwrt master uses packages master, which is now on Go 1.26.
+            # Go 1.26 toolchain rejects many third-party Go packages due to stricter
+            # internal/* subpackage rules. Pin feeds to the openwrt-24.10 branch which
+            # uses Go 1.21-1.22 and has compatible package versions.
+            sed -i 's|^src-git packages https://github.com/immortalwrt/packages.git$|src-git packages https://github.com/immortalwrt/packages.git;branch=openwrt-24.10|' feeds.conf.default
+            sed -i 's|^src-git luci https://github.com/immortalwrt/luci.git$|src-git luci https://github.com/immortalwrt/luci.git;branch=openwrt-24.10|' feeds.conf.default
+            echo "=== feeds.conf.default after pinning ==="
+            cat feeds.conf.default
+
       - name: Update feeds
         working-directory: ./immortalwrt
         run: |
