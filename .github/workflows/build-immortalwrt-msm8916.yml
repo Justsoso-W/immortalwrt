@@ -133,7 +133,6 @@ jobs:
                 'CONFIG_PACKAGE_luci-ssl=y' \
                 'CONFIG_PACKAGE_luci-mod-admin-full=y' \
                 'CONFIG_PACKAGE_luci-compat=y' \
-                'CONFIG_PACKAGE_luci-lib-docker=y' \
                 'CONFIG_PACKAGE_luci-proto-ipv6=y' \
                 'CONFIG_PACKAGE_luci-proto-mbim=y' \
                 'CONFIG_PACKAGE_luci-proto-modemmanager=y' \
