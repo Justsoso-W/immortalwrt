@@ -78,26 +78,21 @@ jobs:
         working-directory: ./immortalwrt
         run: |
             set -e
+            # Ensure feeds are freshly generated. This rebuilds feeds/packages,
+            # so we MUST copy golang1.24 AFTER this (otherwise it gets wiped).
+            ./scripts/feeds update -a 2>&1 | tail -5
             # Create the new golang1.24 package by copying the existing golang1.26 one
-            # and rewriting the version numbers. This is untracked in feeds/packages, so
-            # the second feeds update below will preserve our files.
+            # and rewriting the version numbers. Done AFTER feeds update so the
+            # directory survives until the final symlink + build.
             cp -r feeds/packages/lang/golang/golang1.26 feeds/packages/lang/golang/golang1.24
-            # Rewrite the Makefile in place to target 1.24 instead of 1.26
             sed -i 's/PKG_NAME:=golang1.26/PKG_NAME:=golang1.24/' feeds/packages/lang/golang/golang1.24/Makefile
             sed -i 's/GO_VERSION_MAJOR_MINOR:=1.26/GO_VERSION_MAJOR_MINOR:=1.24/' feeds/packages/lang/golang/golang1.24/Makefile
             sed -i 's/GO_VERSION_PATCH:=4/GO_VERSION_PATCH:=13/' feeds/packages/lang/golang/golang1.24/Makefile
             sed -i 's/^PKG_HASH:=4f668a32fbfc1132e6a881fb968c2f1dada631492a339211735fbb255a42602d/PKG_HASH:=639a6204c2486b137df1eb6e78ee3ed038f9877d0e4b5a465e796a2153f858d7/' feeds/packages/lang/golang/golang1.24/Makefile
-            # golang-bootstrap stays on 1.24.13 (the GO_VERSION_MAJOR_MINOR there), so the
-            # copy inherits 1.24.13 references already? No, golang1.26/Makefile references
-            # itself, not golang-bootstrap. The Go_BOOTSTRAP_VERSION stays 'bootstrap' which
-            # points to lang/golang/golang-bootstrap. Good.
             sed -i 's/^GO_DEFAULT_VERSION:=1.26/GO_DEFAULT_VERSION:=1.24/' feeds/packages/lang/golang/golang-values.mk
-            # Re-run feeds update so the index picks up the new directory.
-            # The untracked directory survives 'git pull --ff-only'.
-            ./scripts/feeds update -a 2>&1 | tail -5
-            # Now create the package symlink. The previous attempt used a relative
-            # path that escaped the repo root, causing a cycle. Use an absolute
-            # path resolved against the repo root.
+            # golang1.24 now lives under feeds/packages and is discovered by make
+            # through the package/feeds/packages symlink scan. No second feeds
+            # update is run here, which would otherwise wipe it again.
             rm -f package/feeds/packages/lang/golang/golang1.24 2>/dev/null || true
             REPO_ROOT="$(pwd)"
             ln -sf "$REPO_ROOT/feeds/packages/lang/golang/golang1.24" package/feeds/packages/lang/golang/golang1.24
@@ -106,12 +101,12 @@ jobs:
             echo ""
             readlink package/feeds/packages/lang/golang/golang1.24
             echo ""
-            # Test that the Makefile is reachable through the symlink
             head -3 package/feeds/packages/lang/golang/golang1.24/Makefile
             echo ""
             echo "=== Verify GO_DEFAULT_VERSION ==="
             grep "GO_DEFAULT_VERSION" feeds/packages/lang/golang/golang-values.mk
             rm -rf build_dir/hostpkg/go-1.26* build_dir/target-*/go-1.26* tmp/go-build 2>/dev/null || true
+
       - name: Restore DL cache
         uses: actions/cache@v4
         with:
