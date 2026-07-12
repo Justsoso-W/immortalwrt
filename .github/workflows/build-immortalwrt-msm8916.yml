@@ -93,6 +93,11 @@ jobs:
             # golang1.24 now lives under feeds/packages and is discovered by make
             # through the package/feeds/packages symlink scan. No second feeds
             # update is run here, which would otherwise wipe it again.
+            # sanity: golang1.24 must exist (copied from golang1.26 a few lines above)
+            [ -d "feeds/packages/lang/golang/golang1.24" ] || { echo "ERROR: golang1.24 copy failed; available golang dirs:"; ls feeds/packages/lang/golang/ 2>&1; exit 1; }
+            # feeds update does NOT create package/feeds/packages/lang/golang/ because golang1.24
+            # is untracked (never indexed), so create the target symlink parent ourselves.
+            mkdir -p package/feeds/packages/lang/golang/
             rm -f package/feeds/packages/lang/golang/golang1.24 2>/dev/null || true
             REPO_ROOT="$(pwd)"
             ln -sf "$REPO_ROOT/feeds/packages/lang/golang/golang1.24" package/feeds/packages/lang/golang/golang1.24
