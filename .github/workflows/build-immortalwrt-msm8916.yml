@@ -74,44 +74,6 @@ jobs:
             ./scripts/feeds update -a
             ./scripts/feeds install -a
 
-      - name: Patch Go toolchain to 1.24.13
-        working-directory: ./immortalwrt
-        run: |
-            set -e
-            # Ensure feeds are freshly generated. This rebuilds feeds/packages,
-            # so we MUST copy golang1.24 AFTER this (otherwise it gets wiped).
-            ./scripts/feeds update -a 2>&1 | tail -5
-            # Create the new golang1.24 package by copying the existing golang1.26 one
-            # and rewriting the version numbers. Done AFTER feeds update so the
-            # directory survives until the final symlink + build.
-            cp -r feeds/packages/lang/golang/golang1.26 feeds/packages/lang/golang/golang1.24
-            sed -i 's/PKG_NAME:=golang1.26/PKG_NAME:=golang1.24/' feeds/packages/lang/golang/golang1.24/Makefile
-            sed -i 's/GO_VERSION_MAJOR_MINOR:=1.26/GO_VERSION_MAJOR_MINOR:=1.24/' feeds/packages/lang/golang/golang1.24/Makefile
-            sed -i 's/GO_VERSION_PATCH:=4/GO_VERSION_PATCH:=13/' feeds/packages/lang/golang/golang1.24/Makefile
-            sed -i 's/^PKG_HASH:=4f668a32fbfc1132e6a881fb968c2f1dada631492a339211735fbb255a42602d/PKG_HASH:=639a6204c2486b137df1eb6e78ee3ed038f9877d0e4b5a465e796a2153f858d7/' feeds/packages/lang/golang/golang1.24/Makefile
-            sed -i 's/^GO_DEFAULT_VERSION:=1.26/GO_DEFAULT_VERSION:=1.24/' feeds/packages/lang/golang/golang-values.mk
-            # golang1.24 now lives under feeds/packages and is discovered by make
-            # through the package/feeds/packages symlink scan. No second feeds
-            # update is run here, which would otherwise wipe it again.
-            # sanity: golang1.24 must exist (copied from golang1.26 a few lines above)
-            [ -d "feeds/packages/lang/golang/golang1.24" ] || { echo "ERROR: golang1.24 copy failed; available golang dirs:"; ls feeds/packages/lang/golang/ 2>&1; exit 1; }
-            # feeds update does NOT create package/feeds/packages/lang/golang/ because golang1.24
-            # is untracked (never indexed), so create the target symlink parent ourselves.
-            mkdir -p package/feeds/packages/lang/golang/
-            rm -f package/feeds/packages/lang/golang/golang1.24 2>/dev/null || true
-            REPO_ROOT="$(pwd)"
-            ln -sf "$REPO_ROOT/feeds/packages/lang/golang/golang1.24" package/feeds/packages/lang/golang/golang1.24
-            echo "=== Verify symlink ==="
-            ls -la package/feeds/packages/lang/golang/
-            echo ""
-            readlink package/feeds/packages/lang/golang/golang1.24
-            echo ""
-            head -3 package/feeds/packages/lang/golang/golang1.24/Makefile
-            echo ""
-            echo "=== Verify GO_DEFAULT_VERSION ==="
-            grep "GO_DEFAULT_VERSION" feeds/packages/lang/golang/golang-values.mk
-            rm -rf build_dir/hostpkg/go-1.26* build_dir/target-*/go-1.26* tmp/go-build 2>/dev/null || true
-
       - name: Restore DL cache
         uses: actions/cache@v4
         with:
