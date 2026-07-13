@@ -73,6 +73,23 @@ jobs:
             echo "mkbootimg now resolves to: $(command -v mkbootimg)"
             mkbootimg --help 2>&1 | head -2 || true
 
+      - name: Build sparse image tools (img2simg, no apt package on noble)
+        run: |
+            # Ubuntu 24.04/noble removed the `android-tools-fsutils` apt package that
+            # previously provided the system `img2simg` binary. The msm89xx image step
+            # assembles system.img via a bare `img2simg` system call, so the build fails
+            # with "img2simg: command not found". Build a self-contained C++
+            # reimplementation (anestisb/android-simg2img) and install it to
+            # /usr/local/bin (which precedes /usr/bin in PATH) to shadow the missing one.
+            git clone --depth=1 https://github.com/anestisb/android-simg2img /tmp/simg2img
+            # Newer GCC (noble) trips -Werror on this code; strip it so the well-known
+            # false positives do not break the build. The code itself is correct.
+            sed -i 's/-Werror//g' /tmp/simg2img/Makefile
+            make -C /tmp/simg2img img2simg
+            sudo install -m 0755 /tmp/simg2img/img2simg /usr/local/bin/img2simg
+            echo "img2simg now resolves to: $(command -v img2simg)"
+            img2simg --help 2>&1 | head -2 || true
+
       - name: Checkout ImmortalWrt (Justsoso-W fork, branch ref)
         uses: actions/checkout@v4
         with:
