@@ -86,7 +86,16 @@ jobs:
             # false positives do not break the build. The code itself is correct.
             sed -i 's/-Werror//g' /tmp/simg2img/Makefile
             make -C /tmp/simg2img img2simg
-            sudo install -m 0755 /tmp/simg2img/img2simg /usr/local/bin/img2simg
+            # Install the real binary under a distinct name; we wrap it below.
+            sudo install -m 0755 /tmp/simg2img/img2simg /usr/local/bin/img2simg.real
+            # anestisb's img2simg aborts with `Assertion pad >= 0 failed` in
+            # write_all_blocks when the input is not a multiple of the 4096 block size.
+            # The OpenWrt squashfs system.img is 141833346 bytes (remainder 1154), so it
+            # always trips this. Wrap it: pad the input to a 4K boundary with zeros (the
+            # trailing zeros are ignored by the squashfs driver on-device), then call the
+            # real binary. The resulting sparse image is identical in content.
+            echo 'IyEvYmluL2Jhc2gKc2V0IC1ldW8gcGlwZWZhaWwKSU49IiR7MTo/dXNhZ2U6IGltZzJzaW1nIDxyYXc+IDxzcGFyc2U+IFtibG9ja19zaXplXX0iCk9VVD0iJHsyOj91c2FnZTogaW1nMnNpbWcgPHJhdz4gPHNwYXJzZT4gW2Jsb2NrX3NpemVdfSIKQlM9IiR7MzotNDA5Nn0iClRNUD0iJChta3RlbXApIgpjcCAtZiAiJElOIiAiJFRNUCIKU0laRT0iJChzdGF0IC1jJXMgIiRUTVAiKSIKUkVNPSIkKCggU0laRSAlIEJTICkpIgppZiBbICIkUkVNIiAtbmUgMCBdOyB0aGVuCiAgZGQgaWY9L2Rldi96ZXJvIGJzPTEgY291bnQ9IiQoKCBCUyAtIFJFTSApKSIgPj4iJFRNUCIgMj4vZGV2L251bGwKZmkKL3Vzci9sb2NhbC9iaW4vaW1nMnNpbWcucmVhbCAiJFRNUCIgIiRPVVQiICIkQlMiCnJtIC1mICIkVE1QIgo=' | base64 -d | sudo tee /usr/local/bin/img2simg >/dev/null
+            sudo chmod +x /usr/local/bin/img2simg
             echo "img2simg now resolves to: $(command -v img2simg)"
             img2simg --help 2>&1 | head -2 || true
 
