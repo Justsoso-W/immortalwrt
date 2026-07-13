@@ -55,6 +55,19 @@ jobs:
                 u-boot-tools device-tree-compiler mkbootimg
             sudo apt-get clean
 
+      - name: Build working mkbootimg (osm0sis C, no Python/gki dependency)
+        run: |
+            # Ubuntu 24.04's `mkbootimg` apt package (Debian bug #1050300) is a Python
+            # script whose `gki` module is absent, so it crashes with
+            # "ModuleNotFoundError: No module named 'gki'" when the msm89xx image step
+            # assembles boot.img. Build a self-contained C reimplementation and install
+            # it to /usr/local/bin (which precedes /usr/bin in PATH) to shadow the broken one.
+            git clone --depth=1 https://github.com/osm0sis/mkbootimg /tmp/mkbootimg
+            make -C /tmp/mkbootimg mkbootimg
+            sudo install -m 0755 /tmp/mkbootimg/mkbootimg /usr/local/bin/mkbootimg
+            echo "mkbootimg now resolves to: $(command -v mkbootimg)"
+            mkbootimg --help 2>&1 | head -2 || true
+
       - name: Checkout ImmortalWrt (Justsoso-W fork, branch ref)
         uses: actions/checkout@v4
         with:
