@@ -63,6 +63,11 @@ jobs:
             # assembles boot.img. Build a self-contained C reimplementation and install
             # it to /usr/local/bin (which precedes /usr/bin in PATH) to shadow the broken one.
             git clone --depth=1 https://github.com/osm0sis/mkbootimg /tmp/mkbootimg
+            # Newer GCC (Ubuntu 24.04/noble) trips a false-positive
+            # -Werror=stringop-overflow= on libmincrypt/rsa.c and aborts the build.
+            # Strip -Werror so the well-known false positive does not break the compile;
+            # the C code itself is correct.
+            sed -i 's/-Werror//g' /tmp/mkbootimg/Makefile /tmp/mkbootimg/libmincrypt/Makefile
             make -C /tmp/mkbootimg mkbootimg
             sudo install -m 0755 /tmp/mkbootimg/mkbootimg /usr/local/bin/mkbootimg
             echo "mkbootimg now resolves to: $(command -v mkbootimg)"
