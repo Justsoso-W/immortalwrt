@@ -115,6 +115,25 @@ jobs:
         working-directory: ./openwrt
         run: make download -j$(nproc) 2>&1 | tail -20
 
+      - name: Build & install host tools + toolchain (flex/m4/bison for kernel kconfig, cross-gcc for kmod-oaf)
+        working-directory: ./openwrt
+        run: |
+            # The kernel kconfig step invokes the OpenWrt host-built `flex`, which execs
+            # `m4` at staging_dir/host/bin/m4. That host m4 (and flex/bison) only exists
+            # AFTER `make tools/install`. Likewise the cross-toolchain (needed to compile
+            # kmod-oaf / oaf) is produced by `make toolchain/install`. Skipping these is
+            # what made `flex: fatal internal error, exec of .../m4 failed` kill the build.
+            make tools/install -j$(nproc) V=s 2>&1 | tail -40
+            rc1=${PIPESTATUS[0]}
+            make toolchain/install -j$(nproc) V=s 2>&1 | tail -40
+            rc2=${PIPESTATUS[0]}
+            if [ $rc1 -ne 0 ] || [ $rc2 -ne 0 ]; then
+                echo "::error::host tools/toolchain install failed (rc1=$rc1 rc2=$rc2)"
+                exit 1
+            fi
+            echo "=== host flex/m4/bison present? ==="
+            ls -l staging_dir/host/bin/m4 staging_dir/host/bin/flex staging_dir/host/bin/bison 2>&1 || true
+
       - name: Build kernel (target/linux/compile) for Module.symvers
         working-directory: ./openwrt
         run: |
