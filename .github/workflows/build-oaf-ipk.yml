@@ -1,22 +1,20 @@
 name: Build OAF ipk for 6.12.45 (msm8916 stock device)
 
-# Build ONLY the OAF packages (oaf = kmod-oaf kernel module, appfilter = userspace
-# daemon, luci-app-oaf = LuCI UI) as ipks that can be `opkg install`-ed onto the
-# running stock device (ImmortalWrt SNAPSHOT r35810, kernel 6.12.45, msm89xx/msm8916)
-# WITHOUT flashing.
+# Build ONLY the OAF packages (kmod-oaf + appfilter + luci-app-oaf) as ipks that can be
+# `opkg install`-ed onto the running stock device (ImmortalWrt SNAPSHOT r35810,
+# kernel 6.12.45, msm89xx/msm8916) WITHOUT flashing.
 #
 # Why a separate source + injected config:
-#   oaf (kmod-oaf) is a kernel module; it only loads if its vermagic matches the
-#   running kernel. The stock device was built from immortalwrt/immortalwrt@b08962bcb7
+#   kmod-oaf is a kernel module; it only loads if its vermagic matches the running
+#   kernel. The stock device was built from immortalwrt/immortalwrt@b08962bcb7
 #   (build timestamp matches `uname` exactly). We rebuild from that SAME commit and
 #   inject the device's own /proc/config.gz (saved as device-kernel-config-6.12.45.config)
-#   as the kernel config, so the produced oaf.ko vermagic == device vermagic
-#   (6.12.45 SMP preempt mod_unload aarch64).
+#   as the kernel config, so the produced kmod-oaf vermagic == device vermagic
+#   (6.12.45 SMP preempt mod_unload aarch64). This is NOT satisfied by our July fork
+#   firmware build, whose kernel was built from a different tree/date.
 #
-# Build-env fix (Ubuntu 24.04 runner): OpenWrt's host m4 binary built from this old
-# commit is broken/unstable and flex (kernel kconfig) shells out to m4 from PATH, where
-# OpenWrt prepends staging_dir/host/bin. We install system m4/flex/bison and overwrite
-# the broken host copies with working system ones after `make tools/install`.
+# Packaging: the device uses OPKG (.ipk). Stock tree defaults to APK (.apk), so we
+# force CONFIG_USE_APK=n + CONFIG_PACKAGE_opkg=y and guard it after defconfig.
 
 on:
   workflow_dispatch:
@@ -62,11 +60,11 @@ jobs:
         run: |
             sudo apt-get update -y
             sudo apt-get install -y --no-install-recommends \
-                build-essential clang flex bison m4 g++ gawk gcc-multilib g++-multilib \
+                build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
                 gettext git libncurses5-dev libssl-dev python3-setuptools \
                 rsync swig unzip zlib1g-dev file wget curl \
                 qemu-utils python3 python3-pip \
-                u-boot-tools device-tree-compiler
+                u-boot-tools device-tree-compiler ccache
             sudo apt-get clean
 
       - name: Clone ImmortalWrt @ exact stock commit
@@ -94,6 +92,24 @@ jobs:
         run: |
             git clone --depth=1 https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
 
+      - name: Lift OpenAppFilter sub-packages into package/
+        # destan19/OpenAppFilter has no top-level Makefile; three parallel sub-packages
+        # (oaf -> kmod-oaf, open-app-filter -> appfilter, luci-app-oaf) must sit
+        # directly under package/ so OpenWrt's package scanner picks them up.
+        working-directory: ./openwrt
+        run: |
+            for p in oaf open-app-filter luci-app-oaf; do
+                if [ -d "package/OpenAppFilter/$p" ]; then
+                    rm -rf "package/$p"
+                    mv "package/OpenAppFilter/$p" "package/$p"
+                else
+                    echo "::warning::sub-package $p not found in cloned repo"
+                fi
+            done
+            rm -rf package/OpenAppFilter
+            echo "=== lifted OAF sub-packages ==="
+            ls -d package/oaf package/open-app-filter package/luci-app-oaf 2>/dev/null
+
       - name: Update & install feeds
         working-directory: ./openwrt
         run: |
@@ -107,43 +123,43 @@ jobs:
                 'CONFIG_TARGET_msm89xx=y' \
                 'CONFIG_TARGET_msm89xx_msm8916=y' \
                 'CONFIG_TARGET_msm89xx_msm8916_DEVICE_openstick-jz02v10=y' \
-                'CONFIG_PACKAGE_oaf=y' \
+                'CONFIG_PACKAGE_kmod-oaf=y' \
                 'CONFIG_PACKAGE_appfilter=y' \
                 'CONFIG_PACKAGE_luci-app-oaf=y' \
                 'CONFIG_DEVEL=y' \
+                'CONFIG_CCACHE=y' \
+                'CONFIG_USE_APK=n' \
+                'CONFIG_PACKAGE_opkg=y' \
                 > .config
             make defconfig
+            # Force OPKG packaging: stock tree defaults to APK (.apk) but the device uses opkg (.ipk).
+            # USE_APK is `default y` (NOT select-ed), so an explicit =n in .config persists through the
+            # whole build (downstream `make` steps use .config as-is; they do not re-run defconfig).
+            # Patch .config directly and DO NOT run a second `make defconfig` here: a second defconfig
+            # re-applies the `default y` and flips USE_APK back to =y, defeating the override.
+            sed -i '/^CONFIG_USE_APK=/d' .config
+            printf 'CONFIG_USE_APK=n\n' >> .config
+            grep -q '^CONFIG_PACKAGE_opkg=y' .config || printf 'CONFIG_PACKAGE_opkg=y\n' >> .config
+            grep -q '^CONFIG_USE_APK=n' .config || { echo "::error::failed to disable APK"; exit 1; }
             echo "=== Selected OAF packages ==="
-            grep -E 'CONFIG_PACKAGE_(oaf|appfilter|luci-app-oaf)=' .config | sort
+            grep -E 'CONFIG_PACKAGE_(kmod-oaf|appfilter|luci-app-oaf)=' .config | sort
+            echo "=== Packaging backend ==="
+            grep -E 'CONFIG_USE_APK|CONFIG_PACKAGE_opkg=' .config | sort
 
       - name: Download sources
         working-directory: ./openwrt
         run: make download -j$(nproc) 2>&1 | tail -20
 
-      - name: Build host tools & fix broken m4/flex/bison
+      - name: Build & install host tools + toolchain
+        # Provides host m4/flex/bison/ccache (needed by kernel syncconfig/LEX) and the
+        # aarch64-openwrt cross gcc/binutils (needed to compile the kernel + kmod-oaf).
         working-directory: ./openwrt
         run: |
-            make tools/install -j$(nproc) 2>&1 | tail -30
-            rc=${PIPESTATUS[0]}
-            if [ $rc -ne 0 ]; then
-                echo "::error::tools/install failed (rc=$rc)"
-                exit 1
-            fi
-            # Kernel kconfig (flex/bison) shells out to m4 from PATH; OpenWrt prepends
-            # staging_dir/host/bin, whose m4/flex/bison built from this old commit are
-            # broken on Ubuntu 24.04. Replace them with the known-good system ones.
-            HB="$(pwd)/staging_dir/host/bin"
-            for t in m4 flex bison; do
-                if command -v "$t" >/dev/null 2>&1; then
-                    rm -f "$HB/$t"
-                    ln -sf "$(command -v "$t")" "$HB/$t"
-                    echo "fixed $t -> $(command -v "$t")"
-                else
-                    echo "::warning::$t not found in system PATH; leaving OpenWrt build"
-                fi
-            done
-            echo "=== verify host m4 works ==="
-            "$HB/m4" --version | head -1
+            make tools/install -j$(nproc) 2>&1 | tail -40
+            rc1=${PIPESTATUS[0]}; [ $rc1 -ne 0 ] && { echo "::error::tools/install failed (rc=$rc1)"; exit 1; }
+            ls -l staging_dir/host/bin/m4 staging_dir/host/bin/flex staging_dir/host/bin/bison staging_dir/host/bin/ccache 2>&1 || true
+            make toolchain/install -j$(nproc) 2>&1 | tail -40
+            rc2=${PIPESTATUS[0]}; [ $rc2 -ne 0 ] && { echo "::error::toolchain/install failed (rc=$rc2)"; exit 1; }
 
       - name: Build kernel (target/linux/compile) for Module.symvers
         working-directory: ./openwrt
@@ -158,23 +174,19 @@ jobs:
       - name: Build OAF packages
         working-directory: ./openwrt
         run: |
-            make package/OpenAppFilter/oaf/compile V=s 2>&1 | tail -200
-            rc1=${PIPESTATUS[0]}
-            make package/OpenAppFilter/open-app-filter/compile V=s 2>&1 | tail -200
-            rc2=${PIPESTATUS[0]}
-            make package/OpenAppFilter/luci-app-oaf/compile V=s 2>&1 | tail -200
-            rc3=${PIPESTATUS[0]}
-            if [ $rc1 -ne 0 ] || [ $rc2 -ne 0 ] || [ $rc3 -ne 0 ]; then
-                echo "::error::OAF build failed (rc1=$rc1 rc2=$rc2 rc3=$rc3)"
+            make package/oaf/compile package/open-app-filter/compile package/luci-app-oaf/compile V=s 2>&1 | tail -200
+            rc=${PIPESTATUS[0]}
+            if [ $rc -ne 0 ]; then
+                echo "::error::OAF build failed (rc=$rc)"
                 exit 1
             fi
 
-      - name: Verify oaf.ko vermagic matches device
+      - name: Verify kmod-oaf vermagic matches device
         working-directory: ./openwrt
         run: |
-            KO_IPK=$(find bin -name 'oaf_*.ipk' | head -1)
+            KO_IPK=$(find bin -name 'kmod-oaf*.ipk' | head -1)
             if [ -z "$KO_IPK" ]; then
-                echo "::error::oaf ipk not found"
+                echo "::error::kmod-oaf ipk not found"
                 exit 1
             fi
             rm -rf /tmp/kochk && mkdir -p /tmp/kochk
@@ -191,13 +203,14 @@ jobs:
                 echo "::error::vermagic MISMATCH — module will not load on device"
                 exit 1
             fi
-            echo "vermagic matches device — oaf.ko will load."
+            echo "vermagic matches device — kmod-oaf will load."
 
       - name: Collect OAF ipks
         working-directory: ./openwrt
         run: |
             mkdir -p /tmp/oaf-ipks
-            find bin/packages -name 'oaf_*.ipk' -o -name 'appfilter_*.ipk' -o -name 'luci-app-oaf_*.ipk' | while read f; do
+            # kmod-oaf lands in bin/targets/.../packages/, appfilter/luci in bin/packages/ — search whole bin/
+            find bin \( -name 'kmod-oaf*.ipk' -o -name 'appfilter_*.ipk' -o -name 'luci-app-oaf*.ipk' \) | while read f; do
                 cp "$f" /tmp/oaf-ipks/
             done
             echo "=== Collected OAF ipks ==="
