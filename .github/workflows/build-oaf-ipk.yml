@@ -87,19 +87,7 @@ jobs:
       - name: Clone OpenAppFilter feed
         working-directory: ./openwrt
         run: |
-            git clone --depth=1 https://github.com/destan19/OpenAppFilter.git /tmp/OpenAppFilter
-            # The OAF repo ships three sibling packages under its root — oaf (=kmod-oaf, the
-            # kernel module), open-app-filter (=appfilter, the userspace oafd daemon) and
-            # luci-app-oaf — but there is NO top-level Makefile. OpenWrt only scans
-            # package/*/Makefile, so cloning into package/OpenAppFilter yields
-            # "No rule to make target 'package/OpenAppFilter/compile'". Lift each package one
-            # level into package/ so the real targets (package/oaf/compile, etc.) resolve.
-            for p in oaf open-app-filter luci-app-oaf; do
-                rm -rf "package/$p"
-                mv "/tmp/OpenAppFilter/$p" "package/$p"
-            done
-            rm -rf /tmp/OpenAppFilter
-            ls package/oaf/Makefile package/open-app-filter/Makefile package/luci-app-oaf/Makefile
+            git clone --depth=1 https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
 
       - name: Update & install feeds
         working-directory: ./openwrt
@@ -113,68 +101,35 @@ jobs:
             printf '%s\n' \
                 'CONFIG_TARGET_msm89xx=y' \
                 'CONFIG_TARGET_msm89xx_msm8916=y' \
+                'CONFIG_TARGET_msm89xx_msm8916_DEVICE_openstick-jz02v10=y' \
                 'CONFIG_PACKAGE_kmod-oaf=y' \
-                'CONFIG_PACKAGE_appfilter=y' \
+                'CONFIG_PACKAGE_oaf=y' \
                 'CONFIG_PACKAGE_luci-app-oaf=y' \
                 'CONFIG_DEVEL=y' \
                 'CONFIG_CCACHE=y' \
-                'CONFIG_USE_APK=n' \
-                'CONFIG_PACKAGE_opkg=y' \
                 > .config
             make defconfig
-            # Stock ImmortalWrt snapshots default to the APK package manager (.apk),
-            # but the target device runs OPKG (.ipk). Force OPKG so we emit .ipk files
-            # the device's opkg can actually install. USE_APK is a plain bool, so an
-            # explicit =n normally survives `make defconfig`; the guard below catches the
-            # case where defconfig re-enabled it.
-            if grep -q '^CONFIG_USE_APK=y' .config; then
-                sed -i 's/^CONFIG_USE_APK=y/# CONFIG_USE_APK is not set/' .config
-                make defconfig
-            fi
-            echo "=== Package manager / selected OAF ==="
-            grep -E 'CONFIG_USE_APK|CONFIG_PACKAGE_(kmod-oaf|appfilter|oaf|luci-app-oaf|opkg)=' .config | sort
+            echo "=== Selected OAF packages ==="
+            grep -E 'CONFIG_PACKAGE_(kmod-oaf|oaf|luci-app-oaf)=' .config | sort
 
       - name: Download sources
         working-directory: ./openwrt
         run: make download -j$(nproc) 2>&1 | tail -20
 
-      - name: Build & install host tools + toolchain (flex/m4/bison for kernel kconfig, cross-gcc for kmod-oaf)
-        working-directory: ./openwrt
-        run: |
-            # The kernel kconfig step invokes the OpenWrt host-built `flex`, which execs
-            # `m4` at staging_dir/host/bin/m4. That host m4 (and flex/bison) only exists
-            # AFTER `make tools/install`. Likewise the cross-toolchain (needed to compile
-            # kmod-oaf / oaf) is produced by `make toolchain/install`. Skipping these is
-            # what made `flex: fatal internal error, exec of .../m4 failed` kill the build.
-            make tools/install -j$(nproc) V=s 2>&1 | tail -40
-            rc1=${PIPESTATUS[0]}
-            make toolchain/install -j$(nproc) V=s 2>&1 | tail -40
-            rc2=${PIPESTATUS[0]}
-            if [ $rc1 -ne 0 ] || [ $rc2 -ne 0 ]; then
-                echo "::error::host tools/toolchain install failed (rc1=$rc1 rc2=$rc2)"
-                exit 1
-            fi
-            echo "=== host flex/m4/bison present? ==="
-            ls -l staging_dir/host/bin/m4 staging_dir/host/bin/flex staging_dir/host/bin/bison 2>&1 || true
-
       - name: Build kernel (target/linux/compile) for Module.symvers
         working-directory: ./openwrt
         run: |
-            make target/linux/compile -j$(nproc) V=s 2>&1 | tee /tmp/kbuild.log
+            make target/linux/compile -j$(nproc) V=s 2>&1 | tail -400
             rc=${PIPESTATUS[0]}
             if [ $rc -ne 0 ]; then
                 echo "::error::kernel build failed (rc=$rc)"
-                echo "===== last 160 lines of kernel build log ====="
-                tail -160 /tmp/kbuild.log
-                echo "===== error/warning pattern grep ====="
-                grep -nE 'error:|Error [0-9]|No rule to make|undefined reference|fatal error|recursive dependency|has invalid value|unknown symbol|not found' /tmp/kbuild.log | tail -60
                 exit 1
             fi
 
       - name: Build OAF packages
         working-directory: ./openwrt
         run: |
-            make package/oaf/compile package/open-app-filter/compile package/luci-app-oaf/compile V=s 2>&1 | tail -200
+            make package/OpenAppFilter/compile V=s 2>&1 | tail -200
             rc=${PIPESTATUS[0]}
             if [ $rc -ne 0 ]; then
                 echo "::error::OAF build failed (rc=$rc)"
@@ -209,9 +164,7 @@ jobs:
         working-directory: ./openwrt
         run: |
             mkdir -p /tmp/oaf-ipks
-            # kmod-oaf lands under bin/targets/<target>/<subtarget>/packages/ (NOT bin/packages/),
-            # so search the whole bin/ tree for all three packages.
-            find bin \( -name 'kmod-oaf*.ipk' -o -name 'appfilter_*.ipk' -o -name 'luci-app-oaf*.ipk' \) | while read f; do
+            find bin/packages -name 'kmod-oaf*.ipk' -o -name 'oaf_*.ipk' -o -name 'luci-app-oaf*.ipk' | while read f; do
                 cp "$f" /tmp/oaf-ipks/
             done
             echo "=== Collected OAF ipks ==="
