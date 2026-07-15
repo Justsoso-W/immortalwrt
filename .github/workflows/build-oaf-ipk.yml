@@ -118,10 +118,14 @@ jobs:
       - name: Build kernel (target/linux/compile) for Module.symvers
         working-directory: ./openwrt
         run: |
-            make target/linux/compile -j$(nproc) 2>&1 | tail -200
+            make target/linux/compile -j$(nproc) V=s 2>&1 | tee /tmp/kbuild.log
             rc=${PIPESTATUS[0]}
             if [ $rc -ne 0 ]; then
                 echo "::error::kernel build failed (rc=$rc)"
+                echo "===== last 160 lines of kernel build log ====="
+                tail -160 /tmp/kbuild.log
+                echo "===== error/warning pattern grep ====="
+                grep -nE 'error:|Error [0-9]|No rule to make|undefined reference|fatal error|recursive dependency|has invalid value|unknown symbol|not found' /tmp/kbuild.log | tail -60
                 exit 1
             fi
 
