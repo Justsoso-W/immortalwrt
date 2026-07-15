@@ -1,6 +1,6 @@
 name: Build OAF ipk for 6.12.45 (msm8916 stock device)
 
-# Build ONLY the OAF packages (kmod-oaf + oaf + luci-app-oaf) as ipks that can be
+# Build ONLY the OAF packages (kmod-oaf + appfilter + luci-app-oaf) as ipks that can be
 # `opkg install`-ed onto the running stock device (ImmortalWrt SNAPSHOT r35810,
 # kernel 6.12.45, msm89xx/msm8916) WITHOUT flashing.
 #
@@ -12,6 +12,9 @@ name: Build OAF ipk for 6.12.45 (msm8916 stock device)
 #   as the kernel config, so the produced kmod-oaf vermagic == device vermagic
 #   (6.12.45 SMP preempt mod_unload aarch64). This is NOT satisfied by our July fork
 #   firmware build, whose kernel was built from a different tree/date.
+#
+# Packaging: the device uses OPKG (.ipk). Stock tree defaults to APK (.apk), so we
+# force CONFIG_USE_APK=n + CONFIG_PACKAGE_opkg=y and guard it after defconfig.
 
 on:
   workflow_dispatch:
@@ -61,7 +64,7 @@ jobs:
                 gettext git libncurses5-dev libssl-dev python3-setuptools \
                 rsync swig unzip zlib1g-dev file wget curl \
                 qemu-utils python3 python3-pip \
-                u-boot-tools device-tree-compiler
+                u-boot-tools device-tree-compiler ccache
             sudo apt-get clean
 
       - name: Clone ImmortalWrt @ exact stock commit
@@ -89,6 +92,24 @@ jobs:
         run: |
             git clone --depth=1 https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
 
+      - name: Lift OpenAppFilter sub-packages into package/
+        # destan19/OpenAppFilter has no top-level Makefile; three parallel sub-packages
+        # (oaf -> kmod-oaf, open-app-filter -> appfilter, luci-app-oaf) must sit
+        # directly under package/ so OpenWrt's package scanner picks them up.
+        working-directory: ./openwrt
+        run: |
+            for p in oaf open-app-filter luci-app-oaf; do
+                if [ -d "package/OpenAppFilter/$p" ]; then
+                    rm -rf "package/$p"
+                    mv "package/OpenAppFilter/$p" "package/$p"
+                else
+                    echo "::warning::sub-package $p not found in cloned repo"
+                fi
+            done
+            rm -rf package/OpenAppFilter
+            echo "=== lifted OAF sub-packages ==="
+            ls -d package/oaf package/open-app-filter package/luci-app-oaf 2>/dev/null
+
       - name: Update & install feeds
         working-directory: ./openwrt
         run: |
@@ -103,18 +124,38 @@ jobs:
                 'CONFIG_TARGET_msm89xx_msm8916=y' \
                 'CONFIG_TARGET_msm89xx_msm8916_DEVICE_openstick-jz02v10=y' \
                 'CONFIG_PACKAGE_kmod-oaf=y' \
-                'CONFIG_PACKAGE_oaf=y' \
+                'CONFIG_PACKAGE_appfilter=y' \
                 'CONFIG_PACKAGE_luci-app-oaf=y' \
                 'CONFIG_DEVEL=y' \
                 'CONFIG_CCACHE=y' \
+                'CONFIG_USE_APK=n' \
+                'CONFIG_PACKAGE_opkg=y' \
                 > .config
             make defconfig
+            # Force OPKG packaging: stock tree defaults to APK (.apk) but the device uses opkg (.ipk)
+            sed -i '/^CONFIG_USE_APK=/d' .config
+            printf 'CONFIG_USE_APK=n\nCONFIG_PACKAGE_opkg=y\n' >> .config
+            make defconfig
+            grep -q '^CONFIG_USE_APK=n' .config || { echo "::error::failed to disable APK"; exit 1; }
             echo "=== Selected OAF packages ==="
-            grep -E 'CONFIG_PACKAGE_(kmod-oaf|oaf|luci-app-oaf)=' .config | sort
+            grep -E 'CONFIG_PACKAGE_(kmod-oaf|appfilter|luci-app-oaf)=' .config | sort
+            echo "=== Packaging backend ==="
+            grep -E 'CONFIG_USE_APK|CONFIG_PACKAGE_opkg=' .config | sort
 
       - name: Download sources
         working-directory: ./openwrt
         run: make download -j$(nproc) 2>&1 | tail -20
+
+      - name: Build & install host tools + toolchain
+        # Provides host m4/flex/bison/ccache (needed by kernel syncconfig/LEX) and the
+        # aarch64-openwrt cross gcc/binutils (needed to compile the kernel + kmod-oaf).
+        working-directory: ./openwrt
+        run: |
+            make tools/install -j$(nproc) 2>&1 | tail -40
+            rc1=${PIPESTATUS[0]}; [ $rc1 -ne 0 ] && { echo "::error::tools/install failed (rc=$rc1)"; exit 1; }
+            ls -l staging_dir/host/bin/m4 staging_dir/host/bin/flex staging_dir/host/bin/bison staging_dir/host/bin/ccache 2>&1 || true
+            make toolchain/install -j$(nproc) 2>&1 | tail -40
+            rc2=${PIPESTATUS[0]}; [ $rc2 -ne 0 ] && { echo "::error::toolchain/install failed (rc=$rc2)"; exit 1; }
 
       - name: Build kernel (target/linux/compile) for Module.symvers
         working-directory: ./openwrt
@@ -129,7 +170,7 @@ jobs:
       - name: Build OAF packages
         working-directory: ./openwrt
         run: |
-            make package/OpenAppFilter/compile V=s 2>&1 | tail -200
+            make package/oaf/compile package/open-app-filter/compile package/luci-app-oaf/compile V=s 2>&1 | tail -200
             rc=${PIPESTATUS[0]}
             if [ $rc -ne 0 ]; then
                 echo "::error::OAF build failed (rc=$rc)"
@@ -158,13 +199,14 @@ jobs:
                 echo "::error::vermagic MISMATCH — module will not load on device"
                 exit 1
             fi
-            echo "✅ vermagic matches device — kmod-oaf will load."
+            echo "vermagic matches device — kmod-oaf will load."
 
       - name: Collect OAF ipks
         working-directory: ./openwrt
         run: |
             mkdir -p /tmp/oaf-ipks
-            find bin/packages -name 'kmod-oaf*.ipk' -o -name 'oaf_*.ipk' -o -name 'luci-app-oaf*.ipk' | while read f; do
+            # kmod-oaf lands in bin/targets/.../packages/, appfilter/luci in bin/packages/ — search whole bin/
+            find bin \( -name 'kmod-oaf*.ipk' -o -name 'appfilter_*.ipk' -o -name 'luci-app-oaf*.ipk' \) | while read f; do
                 cp "$f" /tmp/oaf-ipks/
             done
             echo "=== Collected OAF ipks ==="
