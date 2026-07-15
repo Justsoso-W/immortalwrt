@@ -155,11 +155,24 @@ jobs:
         # aarch64-openwrt cross gcc/binutils (needed to compile the kernel + kmod-oaf).
         working-directory: ./openwrt
         run: |
-            make tools/install -j$(nproc) 2>&1 | tail -40
-            rc1=${PIPESTATUS[0]}; [ $rc1 -ne 0 ] && { echo "::error::tools/install failed (rc=$rc1)"; exit 1; }
+            make tools/install -j$(nproc) 2>&1 | tee /tmp/tools.log | tail -5
+            rc1=${PIPESTATUS[0]}; if [ $rc1 -ne 0 ]; then
+                echo "::error::tools/install failed (rc=$rc1)"
+                grep -iE 'error:|fatal|no rule|undefined|cannot' /tmp/tools.log | tail -40
+                exit 1
+            fi
             ls -l staging_dir/host/bin/m4 staging_dir/host/bin/flex staging_dir/host/bin/bison staging_dir/host/bin/ccache 2>&1 || true
-            make toolchain/install -j$(nproc) 2>&1 | tail -40
-            rc2=${PIPESTATUS[0]}; [ $rc2 -ne 0 ] && { echo "::error::toolchain/install failed (rc=$rc2)"; exit 1; }
+            make toolchain/install -j$(nproc) 2>&1 | tee /tmp/toolchain.log
+            rc2=${PIPESTATUS[0]}; if [ $rc2 -ne 0 ]; then
+                echo "::error::toolchain/install failed (rc=$rc2)"
+                echo "=== grep'd errors ==="
+                grep -iE 'error:|fatal|no rule|undefined reference|make\[.*\]: \*\*\*|No space left' /tmp/toolchain.log | tail -50
+                echo "=== tail of full toolchain log ==="
+                tail -80 /tmp/toolchain.log
+                echo "=== disk after failure ==="
+                df -h / || true
+                exit 1
+            fi
 
       - name: Build kernel (target/linux/compile) for Module.symvers
         working-directory: ./openwrt
