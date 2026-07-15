@@ -87,7 +87,19 @@ jobs:
       - name: Clone OpenAppFilter feed
         working-directory: ./openwrt
         run: |
-            git clone --depth=1 https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
+            git clone --depth=1 https://github.com/destan19/OpenAppFilter.git /tmp/OpenAppFilter
+            # The OAF repo ships three sibling packages under its root — oaf (=kmod-oaf, the
+            # kernel module), open-app-filter (=appfilter, the userspace oafd daemon) and
+            # luci-app-oaf — but there is NO top-level Makefile. OpenWrt only scans
+            # package/*/Makefile, so cloning into package/OpenAppFilter yields
+            # "No rule to make target 'package/OpenAppFilter/compile'". Lift each package one
+            # level into package/ so the real targets (package/oaf/compile, etc.) resolve.
+            for p in oaf open-app-filter luci-app-oaf; do
+                rm -rf "package/$p"
+                mv "/tmp/OpenAppFilter/$p" "package/$p"
+            done
+            rm -rf /tmp/OpenAppFilter
+            ls package/oaf/Makefile package/open-app-filter/Makefile package/luci-app-oaf/Makefile
 
       - name: Update & install feeds
         working-directory: ./openwrt
@@ -102,7 +114,7 @@ jobs:
                 'CONFIG_TARGET_msm89xx=y' \
                 'CONFIG_TARGET_msm89xx_msm8916=y' \
                 'CONFIG_PACKAGE_kmod-oaf=y' \
-                'CONFIG_PACKAGE_oaf=y' \
+                'CONFIG_PACKAGE_appfilter=y' \
                 'CONFIG_PACKAGE_luci-app-oaf=y' \
                 'CONFIG_DEVEL=y' \
                 'CONFIG_CCACHE=y' \
@@ -151,7 +163,7 @@ jobs:
       - name: Build OAF packages
         working-directory: ./openwrt
         run: |
-            make package/OpenAppFilter/compile V=s 2>&1 | tail -200
+            make package/oaf/compile package/open-app-filter/compile package/luci-app-oaf/compile V=s 2>&1 | tail -200
             rc=${PIPESTATUS[0]}
             if [ $rc -ne 0 ]; then
                 echo "::error::OAF build failed (rc=$rc)"
@@ -186,7 +198,7 @@ jobs:
         working-directory: ./openwrt
         run: |
             mkdir -p /tmp/oaf-ipks
-            find bin/packages -name 'kmod-oaf*.ipk' -o -name 'oaf_*.ipk' -o -name 'luci-app-oaf*.ipk' | while read f; do
+            find bin/packages -name 'kmod-oaf*.ipk' -o -name 'appfilter_*.ipk' -o -name 'luci-app-oaf*.ipk' | while read f; do
                 cp "$f" /tmp/oaf-ipks/
             done
             echo "=== Collected OAF ipks ==="
