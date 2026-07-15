@@ -108,7 +108,6 @@ jobs:
                 'CONFIG_CCACHE=y' \
                 > .config
             make defconfig
-            make olddefconfig
             echo "=== Selected OAF packages ==="
             grep -E 'CONFIG_PACKAGE_(kmod-oaf|oaf|luci-app-oaf)=' .config | sort
 
